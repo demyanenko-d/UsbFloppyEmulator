@@ -1,5 +1,7 @@
 #include "oled_task.h"
 #include "config.h"
+#include "ssd1306.h"
+#include "hardware/i2c.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -8,21 +10,37 @@ QueueHandle_t oled_queue = NULL;
 
 // Внутренние переменные
 static bool display_initialized = false;
+static ssd1306_t disp;
 
 /**
  * @brief Инициализация OLED дисплея
  */
 static void oled_init_display(void) {
-    // TODO: Инициализация I2C
-    // TODO: Инициализация SSD1306
-    
     printf("[OLED] Initializing display...\n");
     
-    // Заглушка - будет заменена на реальную инициализацию
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // Инициализация I2C
+    i2c_init(OLED_I2C_PORT, 400 * 1000);  // 400 кГц
+    gpio_set_function(OLED_I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(OLED_I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(OLED_I2C_SDA);
+    gpio_pull_up(OLED_I2C_SCL);
     
-    display_initialized = true;
-    printf("[OLED] Display initialized\n");
+    printf("[OLED] I2C initialized (SDA: %d, SCL: %d)\n", OLED_I2C_SDA, OLED_I2C_SCL);
+    
+    // Инициализация SSD1306
+    if (ssd1306_init(&disp, OLED_WIDTH, OLED_HEIGHT, OLED_I2C_ADDR, OLED_I2C_PORT)) {
+        display_initialized = true;
+        printf("[OLED] SSD1306 initialized successfully (%dx%d)\n", OLED_WIDTH, OLED_HEIGHT);
+        
+        // Очистка и показ стартового экрана
+        ssd1306_clear(&disp);
+        ssd1306_draw_string(&disp, 0, 0, 1, "USB Floppy Emu");
+        ssd1306_draw_string(&disp, 0, 10, 1, "Initializing...");
+        ssd1306_show(&disp);
+    } else {
+        printf("[OLED] Failed to initialize SSD1306!\n");
+        display_initialized = false;
+    }
 }
 
 /**
@@ -31,8 +49,9 @@ static void oled_init_display(void) {
 static void oled_clear(void) {
     if (!display_initialized) return;
     
-    // TODO: Очистка SSD1306
-    printf("[OLED] Clear display\n");
+    ssd1306_clear(&disp);
+    ssd1306_show(&disp);
+    printf("[OLED] Display cleared\n");
 }
 
 /**
@@ -45,12 +64,33 @@ static void oled_draw_menu(oled_message_t *msg) {
            msg->data.menu.item_count, 
            msg->data.menu.selected_index);
     
-    // TODO: Отрисовка пунктов меню на SSD1306
+    // Очистка дисплея
+    ssd1306_clear(&disp);
+    
+    // Вычисляем высоту строки в зависимости от размера дисплея
+    // Для 32px: 10 пикселей на строку (3 строки)
+    // Для 64px: 12 пикселей на строку (5 строк)
+    uint8_t line_height = (OLED_HEIGHT == 32) ? 10 : 12;
+    uint8_t y_offset = 1;
+    
+    // Отрисовка пунктов меню
     for (uint8_t i = 0; i < msg->data.menu.item_count; i++) {
-        printf("[OLED]   %c %s\n", 
-               (i == msg->data.menu.selected_index) ? '>' : ' ',
-               msg->data.menu.items[i]);
+        uint8_t y_pos = y_offset + (i * line_height);
+        
+        // Индикатор выбора (стрелка или инверсия)
+        if (i == msg->data.menu.selected_index) {
+            // Рисуем стрелку выбора
+            ssd1306_draw_string(&disp, 0, y_pos, 1, ">");
+            // Можно добавить инверсию фона
+            // ssd1306_draw_square(&disp, 8, y_pos - 1, OLED_WIDTH - 8, 10);
+        }
+        
+        // Текст пункта меню (с отступом для стрелки)
+        ssd1306_draw_string(&disp, 10, y_pos, 1, msg->data.menu.items[i]);
     }
+    
+    // Обновление дисплея
+    ssd1306_show(&disp);
 }
 
 /**
@@ -63,7 +103,17 @@ static void oled_show_message(oled_message_t *msg) {
            msg->data.message.line,
            msg->data.message.text);
     
-    // TODO: Вывод текста на SSD1306
+    // Очистка дисплея
+    ssd1306_clear(&disp);
+    
+    // Вывод текста на указанной строке
+    uint8_t y_pos = msg->data.message.line * 10;
+    if (y_pos >= OLED_HEIGHT) {
+        y_pos = 0;
+    }
+    
+    ssd1306_draw_string(&disp, 0, y_pos, 1, msg->data.message.text);
+    ssd1306_show(&disp);
 }
 
 /**
@@ -76,7 +126,17 @@ static void oled_show_status(oled_message_t *msg) {
     printf("[OLED]   %s\n", msg->data.status.status_line1);
     printf("[OLED]   %s\n", msg->data.status.status_line2);
     
-    // TODO: Вывод статуса на SSD1306
+    // Очистка дисплея
+    ssd1306_clear(&disp);
+    
+    // Вывод двух строк статуса
+    ssd1306_draw_string(&disp, 0, 0, 1, msg->data.status.status_line1);
+    
+    // Вторая строка в центре для дисплеев 32px, ниже для 64px
+    uint8_t line2_y = (OLED_HEIGHT == 32) ? 16 : 20;
+    ssd1306_draw_string(&disp, 0, line2_y, 1, msg->data.status.status_line2);
+    
+    ssd1306_show(&disp);
 }
 
 /**
@@ -114,12 +174,16 @@ void oled_task(void *pvParameters) {
                     
                 case OLED_CMD_POWER_ON:
                     printf("[OLED] Power ON\n");
-                    // TODO: Включить дисплей
+                    if (display_initialized) {
+                        ssd1306_poweron(&disp);
+                    }
                     break;
                     
                 case OLED_CMD_POWER_OFF:
                     printf("[OLED] Power OFF\n");
-                    // TODO: Выключить дисплей
+                    if (display_initialized) {
+                        ssd1306_poweroff(&disp);
+                    }
                     break;
                     
                 default:

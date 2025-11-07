@@ -33,9 +33,55 @@ project(UsbFloppyEmu C CXX ASM)
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add executable. Default name is the project name, version 0.1
+# FreeRTOS kernel location
+set(FREERTOS_KERNEL_PATH ${CMAKE_CURRENT_LIST_DIR}/extras/FreeRTOS-Kernel)
 
-add_executable(UsbFloppyEmu UsbFloppyEmu.cpp )
+# SSD1306 library location
+set(SSD1306_PATH ${CMAKE_CURRENT_LIST_DIR}/extras/pico-ssd1306)
+
+# FatFS library location
+set(FATFS_PATH ${CMAKE_CURRENT_LIST_DIR}/extras/fatfs)
+
+# Add FreeRTOS as a subdirectory
+add_subdirectory(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040 FreeRTOS-Kernel)
+
+# Collect all task source files
+set(TASK_SOURCES
+    tasks/oled_task.c
+    tasks/control_task.c
+    tasks/menu_task.c
+    tasks/sdcard_task.c
+    tasks/usb_task.c
+    tasks/led_task.c
+    tasks.c
+)
+
+# SSD1306 library sources
+set(SSD1306_SOURCES
+    ${SSD1306_PATH}/ssd1306.c
+)
+
+# SD card driver sources
+set(SD_SOURCES
+    drivers/sd_card.c
+    drivers/ff_diskio.c
+)
+
+# FatFS library sources
+set(FATFS_SOURCES
+    ${FATFS_PATH}/source/ff.c
+    ${FATFS_PATH}/source/ffsystem.c
+    ${FATFS_PATH}/source/ffunicode.c
+)
+
+# Add executable with all sources
+add_executable(UsbFloppyEmu 
+    UsbFloppyEmu.cpp
+    ${TASK_SOURCES}
+    ${SSD1306_SOURCES}
+    ${SD_SOURCES}
+    ${FATFS_SOURCES}
+)
 
 pico_set_program_name(UsbFloppyEmu "UsbFloppyEmu")
 pico_set_program_version(UsbFloppyEmu "0.1")
@@ -46,18 +92,23 @@ pico_enable_stdio_usb(UsbFloppyEmu 0)
 
 # Add the standard library to the build
 target_link_libraries(UsbFloppyEmu
-        pico_stdlib)
+    pico_stdlib
+    hardware_spi
+    hardware_i2c
+    hardware_gpio
+    FreeRTOS-Kernel
+    FreeRTOS-Kernel-Heap4
+)
 
 # Add the standard include files to the build
 target_include_directories(UsbFloppyEmu PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/tasks
+    ${CMAKE_CURRENT_LIST_DIR}/drivers
+    ${FREERTOS_KERNEL_PATH}/include
+    ${SSD1306_PATH}
+    ${FATFS_PATH}/source
 )
-
-# Add any user requested libraries
-target_link_libraries(UsbFloppyEmu 
-        hardware_spi
-        hardware_i2c
-        )
 
 pico_add_extra_outputs(UsbFloppyEmu)
 

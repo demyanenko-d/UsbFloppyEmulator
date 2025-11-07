@@ -56,7 +56,7 @@
 #define configTIMER_TASK_STACK_DEPTH            configMINIMAL_STACK_SIZE
 
 /* Define to trap errors during development. */
-#define configASSERT(x) if((x) == 0) { taskDISABLE_INTERRUPTS(); for(;;); }
+#define configASSERT(x) if((x) == 0) { portDISABLE_INTERRUPTS(); for(;;); }
 
 /* Optional functions - most linkers will remove unused functions anyway. */
 #define INCLUDE_vTaskPrioritySet                1
@@ -81,7 +81,8 @@
 #define configNUM_CORES                         2
 #define configTICK_CORE                         0
 #define configRUN_MULTIPLE_PRIORITIES           1
-#define configUSE_CORE_AFFINITY                 1
+// configUSE_CORE_AFFINITY requires SMP mode
+// #define configUSE_CORE_AFFINITY                 1
 
 /* SMP specific definitions */
 #define configUSE_PASSIVE_IDLE_HOOK             0

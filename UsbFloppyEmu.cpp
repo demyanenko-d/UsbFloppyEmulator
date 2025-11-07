@@ -1,53 +1,97 @@
+/**
+ * @file UsbFloppyEmu.cpp
+ * @brief USB Floppy Disk Drive Emulator - Main Entry Point
+ * 
+ * Эмулятор USB флоппи-дисковода на базе Raspberry Pi Pico
+ * с использованием FreeRTOS для управления задачами.
+ * 
+ * @author USB Floppy Emulator Project
+ * @date 2025
+ */
+
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/spi.h"
-#include "hardware/i2c.h"
 
-// SPI Defines
-// We are going to use SPI 0, and allocate it to the following GPIO pins
-// Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define SPI_PORT spi0
-#define PIN_MISO 16
-#define PIN_CS   17
-#define PIN_SCK  18
-#define PIN_MOSI 19
+// FreeRTOS
+#include "FreeRTOS.h"
+#include "task.h"
 
-// I2C defines
-// This example will use I2C0 on GPIO8 (SDA) and GPIO9 (SCL) running at 400KHz.
-// Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define I2C_PORT i2c0
-#define I2C_SDA 8
-#define I2C_SCL 9
+// Конфигурация проекта
+#include "config.h"
 
+// Все задачи системы
+#include "tasks.h"
 
-
-int main()
-{
+/**
+ * @brief Основная функция программы
+ * 
+ * Инициализирует периферию Pico, создает все задачи FreeRTOS
+ * и запускает планировщик.
+ */
+int main() {
+    // Инициализация стандартного ввода/вывода (USB Serial)
     stdio_init_all();
-
-    // SPI initialisation. This example will use SPI at 1MHz.
-    spi_init(SPI_PORT, 1000*1000);
-    gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
-    gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
     
-    // Chip select is active-low, so we'll initialise it to a driven-high state
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_put(PIN_CS, 1);
-    // For more examples of SPI use see https://github.com/raspberrypi/pico-examples/tree/master/spi
-
-    // I2C Initialisation. Using it at 400Khz.
-    i2c_init(I2C_PORT, 400*1000);
+    // Небольшая задержка для стабилизации USB
+    sleep_ms(500);
     
-    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA);
-    gpio_pull_up(I2C_SCL);
-    // For more examples of I2C use see https://github.com/raspberrypi/pico-examples/tree/master/i2c
-
+    printf("\n");
+    printf("========================================\n");
+    printf("  USB Floppy Disk Drive Emulator\n");
+    printf("  FreeRTOS @ %d Hz tick rate\n", configTICK_RATE_HZ);
+    printf("  RP2040 @ %d MHz\n", configCPU_CLOCK_HZ / 1000000);
+    printf("========================================\n");
+    printf("\n");
+    
+    // Инициализация всех задач системы
+    // Порядок важен - см. tasks.c
+    tasks_init_all();
+    
+    printf("\n");
+    printf("Starting FreeRTOS scheduler...\n");
+    printf("\n");
+    
+    // Запуск планировщика FreeRTOS
+    // Эта функция никогда не вернет управление
+    vTaskStartScheduler();
+    
+    // Код ниже никогда не должен выполняться
+    // Если мы здесь - что-то пошло не так
+    printf("ERROR: Scheduler failed to start!\n");
+    
+    // Аварийное мигание LED
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    
     while (true) {
-        printf("Hello, world!\n");
-        sleep_ms(1000);
+        gpio_put(PICO_DEFAULT_LED_PIN, 1);
+        sleep_ms(100);
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
+        sleep_ms(100);
+    }
+    
+    return 0;
+}
+
+/**
+ * @brief Hook функция FreeRTOS - вызывается при нехватке памяти
+ */
+void vApplicationMallocFailedHook(void) {
+    printf("FATAL: Malloc failed - out of heap memory!\n");
+    taskDISABLE_INTERRUPTS();
+    while (1) {
+        // Аварийная остановка
+    }
+}
+
+/**
+ * @brief Hook функция FreeRTOS - вызывается при переполнении стека задачи
+ */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+    (void)xTask;
+    printf("FATAL: Stack overflow in task: %s\n", pcTaskName);
+    taskDISABLE_INTERRUPTS();
+    while (1) {
+        // Аварийная остановка
     }
 }

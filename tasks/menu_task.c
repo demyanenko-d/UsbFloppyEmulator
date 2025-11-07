@@ -1,9 +1,12 @@
 #include "menu_task.h"
 #include "oled_task.h"
 #include "sdcard_task.h"
+#include "sd_card.h"
 #include "config.h"
 #include <stdio.h>
 #include <string.h>
+
+#define MAX_IMAGES 32  // Максимум файлов (совпадает с sdcard_task.h)
 
 // Очередь для событий от control_task
 QueueHandle_t menu_queue = NULL;
@@ -27,8 +30,9 @@ static void update_oled_menu(void) {
     switch (current_state) {
         case MENU_STATE_MAIN:
             strcpy(msg.data.menu.items[0], "Select Image");
-            strcpy(msg.data.menu.items[1], "Eject Disk");
-            msg.data.menu.item_count = 2;
+            strcpy(msg.data.menu.items[1], "SD Card Info");
+            strcpy(msg.data.menu.items[2], "Eject Disk");
+            msg.data.menu.item_count = 3;
             msg.data.menu.selected_index = selected_index;
             break;
             
@@ -40,6 +44,13 @@ static void update_oled_menu(void) {
                 msg.data.menu.item_count++;
             }
             msg.data.menu.selected_index = selected_index - scroll_offset;
+            break;
+            
+        case MENU_STATE_SD_INFO:
+            strcpy(msg.data.menu.items[0], "SD Card Info");
+            strcpy(msg.data.menu.items[1], "Press OK");
+            msg.data.menu.item_count = 2;
+            msg.data.menu.selected_index = 0;
             break;
             
         case MENU_STATE_FILE_SELECTED:
@@ -74,7 +85,7 @@ static void handle_navigation(bool is_up) {
     
     switch (current_state) {
         case MENU_STATE_MAIN:
-            max_index = 1;  // 2 пункта: Select Image, Eject Disk
+            max_index = 2;  // 3 пункта: Select Image, SD Card Info, Eject Disk
             break;
             
         case MENU_STATE_FILE_LIST:
@@ -120,22 +131,52 @@ static void handle_ok_press(void) {
                 sd_msg.command = SDCARD_CMD_LIST_IMAGES;
                 xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
                 
-                // TODO: Ждем ответа и переходим в MENU_STATE_FILE_LIST
-                current_state = MENU_STATE_FILE_LIST;
-                selected_index = 0;
-                scroll_offset = 0;
-                
-                // Временная заглушка с тестовыми файлами
-                strcpy(file_list[0], "DOS622.IMG");
-                strcpy(file_list[1], "WIN98.IMG");
-                strcpy(file_list[2], "FREEDOS.IMG");
-                file_count = 3;
-                
+                // Переходим в состояние загрузки и ждем ответ
+                current_state = MENU_STATE_LOADING;
                 update_oled_menu();
+                
             } else if (selected_index == 1) {
+                // SD Card Info - показать информацию о карте
+                printf("[MENU] Showing SD card info\n");
+                current_state = MENU_STATE_SD_INFO;
+                
+                // Запросить информацию о карте через OLED
+                oled_message_t oled_msg;
+                oled_msg.command = OLED_CMD_SHOW_STATUS;
+                
+                if (sdcard_is_initialized()) {
+                    const sd_card_info_t* info = sd_card_get_info();
+                    if (info != NULL) {
+                        const char* card_type_str = "Unknown";
+                        if (info->type == SD_CARD_TYPE_SD1) {
+                            card_type_str = "SD v1";
+                        } else if (info->type == SD_CARD_TYPE_SD2) {
+                            card_type_str = "SD v2";
+                        } else if (info->type == SD_CARD_TYPE_SDHC) {
+                            card_type_str = "SDHC";
+                        }
+                        
+                        snprintf(oled_msg.data.status.status_line1, 32, "%s %lu MB", 
+                                card_type_str, info->capacity_mb);
+                        snprintf(oled_msg.data.status.status_line2, 32, "%lu sectors", 
+                                info->sectors);
+                    } else {
+                        strcpy(oled_msg.data.status.status_line1, "Card Info");
+                        strcpy(oled_msg.data.status.status_line2, "Not available");
+                    }
+                } else {
+                    strcpy(oled_msg.data.status.status_line1, "SD Card");
+                    strcpy(oled_msg.data.status.status_line2, "Not initialized");
+                }
+                
+                xQueueSend(oled_queue, &oled_msg, portMAX_DELAY);
+                
+            } else if (selected_index == 2) {
                 // Eject disk
                 printf("[MENU] Ejecting disk\n");
-                // TODO: Отправить команду в USB task
+                sdcard_message_t sd_msg;
+                sd_msg.command = SDCARD_CMD_EJECT;
+                xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
             }
             break;
             
@@ -158,6 +199,13 @@ static void handle_ok_press(void) {
             sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
             strncpy(sd_msg.data.filename, file_list[selected_index], 64);
             xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+            break;
+            
+        case MENU_STATE_SD_INFO:
+            // Возврат в главное меню
+            current_state = MENU_STATE_MAIN;
+            selected_index = 0;
+            update_oled_menu();
             break;
             
         case MENU_STATE_ERROR:
@@ -187,8 +235,37 @@ void menu_task(void *pvParameters) {
     update_oled_menu();
     
     while (1) {
+        // Проверка ответов от SD карты
+        sdcard_response_t sd_response;
+        if (xQueueReceive(sdcard_response_queue, &sd_response, 0) == pdTRUE) {
+            printf("[MENU] Received SD card response\n");
+            
+            if (current_state == MENU_STATE_LOADING) {
+                if (sd_response.success && sd_response.data.file_list.count > 0) {
+                    // Получен список файлов
+                    file_count = sd_response.data.file_list.count;
+                    for (uint8_t i = 0; i < file_count && i < MAX_IMAGES; i++) {
+                        strncpy(file_list[i], sd_response.data.file_list.files[i], 31);
+                        file_list[i][31] = '\0';
+                    }
+                    
+                    printf("[MENU] Loaded %d files from SD card\n", file_count);
+                    
+                    current_state = MENU_STATE_FILE_LIST;
+                    selected_index = 0;
+                    scroll_offset = 0;
+                    update_oled_menu();
+                } else {
+                    // Ошибка или нет файлов
+                    printf("[MENU] No files found or SD error\n");
+                    current_state = MENU_STATE_ERROR;
+                    update_oled_menu();
+                }
+            }
+        }
+        
         // Ожидание событий от control_task
-        if (xQueueReceive(menu_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(menu_queue, &msg, pdMS_TO_TICKS(10)) == pdTRUE) {
             printf("[MENU] Received event: %d\n", msg.event);
             
             switch (msg.event) {

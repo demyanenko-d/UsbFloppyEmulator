@@ -16,6 +16,10 @@
 #include "tasks/usb_task.h"
 #include "tasks/led_task.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Инициализация всех задач системы
  * 
@@ -23,5 +27,9 @@
  * Должна быть вызвана до запуска планировщика FreeRTOS.
  */
 void tasks_init_all(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TASKS_H
