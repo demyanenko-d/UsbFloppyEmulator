@@ -15,6 +15,7 @@ QueueHandle_t menu_queue = NULL;
 static menu_state_t current_state = MENU_STATE_MAIN;
 static uint8_t selected_index = 0;
 static uint8_t scroll_offset = 0;
+static uint8_t selected_file_index = 0;  // Сохраненный индекс выбранного файла
 
 // Список файлов (будет заполняться из sdcard_task)
 static char file_list[MAX_IMAGES][32];
@@ -53,10 +54,11 @@ static void update_oled_menu(void) {
             msg.data.menu.selected_index = 0;
             break;
             
-        case MENU_STATE_FILE_SELECTED:
+        case MENU_STATE_FILE_CONFIRM:
             strcpy(msg.data.menu.items[0], "Load Image?");
-            snprintf(msg.data.menu.items[1], 32, "%.28s", file_list[selected_index]);
-            msg.data.menu.item_count = 2;
+            snprintf(msg.data.menu.items[1], 32, "%.20s", file_list[selected_file_index]);
+            strcpy(msg.data.menu.items[2], "OK=Yes  Back=No");
+            msg.data.menu.item_count = 3;
             msg.data.menu.selected_index = 0;
             break;
             
@@ -183,21 +185,22 @@ static void handle_ok_press(void) {
         case MENU_STATE_FILE_LIST:
             if (file_count > 0) {
                 printf("[MENU] File selected: %s\n", file_list[selected_index]);
-                current_state = MENU_STATE_FILE_SELECTED;
+                selected_file_index = selected_index;  // Сохранить выбранный файл
+                current_state = MENU_STATE_FILE_CONFIRM;
                 update_oled_menu();
             }
             break;
             
-        case MENU_STATE_FILE_SELECTED:
+        case MENU_STATE_FILE_CONFIRM:
             // Загрузка образа
-            printf("[MENU] Loading image: %s\n", file_list[selected_index]);
+            printf("[MENU] Loading image: %s\n", file_list[selected_file_index]);
             current_state = MENU_STATE_LOADING;
             update_oled_menu();
             
-            // TODO: Отправить команду на загрузку образа
+            // Отправить команду на загрузку образа
             sdcard_message_t sd_msg;
             sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
-            strncpy(sd_msg.data.filename, file_list[selected_index], 64);
+            strncpy(sd_msg.data.filename, file_list[selected_file_index], 64);
             xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
             break;
             
@@ -216,6 +219,48 @@ static void handle_ok_press(void) {
             break;
             
         default:
+            break;
+    }
+}
+
+/**
+ * @brief Обработка кнопки "Назад" (длительное нажатие)
+ */
+static void handle_back_press(void) {
+    printf("[MENU] Back pressed, state=%d\n", current_state);
+    
+    switch (current_state) {
+        case MENU_STATE_FILE_LIST:
+            // Из списка файлов в главное меню
+            current_state = MENU_STATE_MAIN;
+            selected_index = 0;
+            scroll_offset = 0;
+            update_oled_menu();
+            break;
+            
+        case MENU_STATE_FILE_CONFIRM:
+            // Из подтверждения обратно в список файлов
+            current_state = MENU_STATE_FILE_LIST;
+            selected_index = selected_file_index;
+            // Восстановить прокрутку
+            if (selected_index >= MENU_ITEMS_PER_PAGE) {
+                scroll_offset = selected_index - MENU_ITEMS_PER_PAGE + 1;
+            } else {
+                scroll_offset = 0;
+            }
+            update_oled_menu();
+            break;
+            
+        case MENU_STATE_SD_INFO:
+        case MENU_STATE_ERROR:
+            // Из информации/ошибки в главное меню
+            current_state = MENU_STATE_MAIN;
+            selected_index = 0;
+            update_oled_menu();
+            break;
+            
+        default:
+            // В других состояниях игнорируем
             break;
     }
 }
@@ -268,6 +313,14 @@ void menu_task(void *pvParameters) {
         if (xQueueReceive(menu_queue, &msg, pdMS_TO_TICKS(10)) == pdTRUE) {
             printf("[MENU] Received event: %d\n", msg.event);
             
+            // Любое нажатие кнопки убирает экран информации о SD карте при старте
+            if (current_state == MENU_STATE_SD_INFO) {
+                current_state = MENU_STATE_MAIN;
+                selected_index = 0;
+                update_oled_menu();
+                continue;  // Пропустить обработку события
+            }
+            
             switch (msg.event) {
                 case CONTROL_EVENT_UP:
                 case CONTROL_EVENT_ENCODER_CCW:
@@ -281,6 +334,10 @@ void menu_task(void *pvParameters) {
                     
                 case CONTROL_EVENT_OK:
                     handle_ok_press();
+                    break;
+                    
+                case CONTROL_EVENT_LONG_PRESS:
+                    handle_back_press();
                     break;
                     
                 default:

@@ -53,11 +53,11 @@
 
 // Display Configuration
 #if OLED_HEIGHT == 32
-    #define MENU_ITEMS_PER_PAGE     2  // 2 элемента для дисплея 32px
+    #define MENU_ITEMS_PER_PAGE     3  // 3 элемента для дисплея 32px (с уменьшенным расстоянием)
 #elif OLED_HEIGHT == 64
-    #define MENU_ITEMS_PER_PAGE     4  // 4 элемента для дисплея 64px
+    #define MENU_ITEMS_PER_PAGE     5  // 5 элементов для дисплея 64px
 #else
-    #define MENU_ITEMS_PER_PAGE     2  // По умолчанию
+    #define MENU_ITEMS_PER_PAGE     3  // По умолчанию
 #endif
 
 #define DEBOUNCE_TIME_MS        50

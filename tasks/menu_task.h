@@ -8,12 +8,12 @@
 
 // Состояния меню
 typedef enum {
-    MENU_STATE_MAIN,        // Главное меню
-    MENU_STATE_FILE_LIST,   // Список файлов
-    MENU_STATE_FILE_SELECTED, // Файл выбран
-    MENU_STATE_LOADING,     // Загрузка образа
-    MENU_STATE_SD_INFO,     // Информация о SD карте
-    MENU_STATE_ERROR        // Ошибка
+    MENU_STATE_MAIN,          // Главное меню
+    MENU_STATE_FILE_LIST,     // Список файлов
+    MENU_STATE_FILE_CONFIRM,  // Подтверждение загрузки файла
+    MENU_STATE_LOADING,       // Загрузка образа
+    MENU_STATE_SD_INFO,       // Информация о SD карте
+    MENU_STATE_ERROR          // Ошибка
 } menu_state_t;
 
 // Структура сообщения для menu_task

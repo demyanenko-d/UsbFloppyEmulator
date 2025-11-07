@@ -72,18 +72,8 @@ static bool sdcard_init_card(void) {
     printf("[SDCARD] Card: %s\n", info_line1);
     printf("[SDCARD] %s\n", info_line2);
     
-    // Отправка информации на OLED
-    oled_message_t oled_msg;
-    oled_msg.command = OLED_CMD_SHOW_STATUS;
-    strcpy(oled_msg.data.status.status_line1, info_line1);
-    strcpy(oled_msg.data.status.status_line2, info_line2);
-    
-    extern QueueHandle_t oled_queue;
-    if (oled_queue != NULL) {
-        xQueueSend(oled_queue, &oled_msg, pdMS_TO_TICKS(100));
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(2000));  // Показать информацию 2 секунды
+    // Не показываем информацию автоматически при старте
+    // Информация будет доступна через пункт меню "SD Card Info"
     
     // Монтирование файловой системы
     FRESULT res = f_mount(&fatfs, "0:", 1);  // 1 = монтировать сейчас
