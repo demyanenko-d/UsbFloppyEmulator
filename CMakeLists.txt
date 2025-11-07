@@ -51,6 +51,7 @@ set(TASK_SOURCES
     tasks/control_task.c
     tasks/menu_task.c
     tasks/sdcard_task.c
+    tasks/floppy_emu_task.c
     tasks/usb_task.c
     tasks/led_task.c
     tasks.c
@@ -77,6 +78,7 @@ set(FATFS_SOURCES
 # Add executable with all sources
 add_executable(UsbFloppyEmu 
     UsbFloppyEmu.cpp
+    usb_descriptors.c
     ${TASK_SOURCES}
     ${SSD1306_SOURCES}
     ${SD_SOURCES}
@@ -93,9 +95,12 @@ pico_enable_stdio_usb(UsbFloppyEmu 0)
 # Add the standard library to the build
 target_link_libraries(UsbFloppyEmu
     pico_stdlib
+    pico_unique_id
     hardware_spi
     hardware_i2c
     hardware_gpio
+    tinyusb_device
+    tinyusb_board
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
 )

@@ -1,10 +1,10 @@
 #include "usb_task.h"
-#include "sdcard_task.h"
+#include "floppy_emu_task.h"
 #include "config.h"
+#include "pico/stdlib.h"
+#include "tusb.h"
 #include <stdio.h>
 #include <string.h>
-
-// TODO: #include "tusb.h"
 
 // Очередь для команд
 QueueHandle_t usb_queue = NULL;
@@ -12,105 +12,155 @@ QueueHandle_t usb_queue = NULL;
 // Состояние USB
 static bool usb_mounted = false;
 
+//--------------------------------------------------------------------+
+// USB MSC Callbacks (TinyUSB)
+//--------------------------------------------------------------------+
+
 /**
- * @brief Инициализация TinyUSB
+ * @brief Callback: Вызывается при подключении устройства
  */
-static void usb_init_tinyusb(void) {
-    printf("[USB] Initializing TinyUSB...\n");
-    
-    // TODO: Настройка дескрипторов USB Mass Storage
-    // TODO: tud_init(BOARD_TUD_RHPORT);
-    
-    printf("[USB] TinyUSB initialized\n");
+void tud_mount_cb(void) {
+    printf("[USB] Device mounted\n");
+    usb_mounted = true;
 }
 
 /**
- * @brief Подключение USB диска
+ * @brief Callback: Вызывается при отключении устройства
  */
-static void usb_mount_disk(void) {
-    printf("[USB] Mounting disk...\n");
+void tud_umount_cb(void) {
+    printf("[USB] Device unmounted\n");
+    usb_mounted = false;
+}
+
+/**
+ * @brief Callback: Проверка готовности диска
+ */
+bool tud_msc_test_unit_ready_cb(uint8_t lun) {
+    (void)lun;
     
-    if (!sdcard_is_initialized()) {
-        printf("[USB] SD card not initialized!\n");
-        return;
+    // Диск готов если образ загружен в эмулятор
+    bool ready = floppy_is_ready();
+    
+    if (!ready) {
+        // Установить код ошибки "medium not present"
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
     }
     
-    // TODO: Включить Mass Storage Device
-    usb_mounted = true;
-    
-    printf("[USB] Disk mounted\n");
+    return ready;
 }
 
 /**
- * @brief Отключение USB диска
+ * @brief Callback: Получить емкость диска
  */
-static void usb_unmount_disk(void) {
-    printf("[USB] Unmounting disk...\n");
+void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) {
+    (void)lun;
     
-    // TODO: Отключить Mass Storage Device
-    usb_mounted = false;
+    *block_count = FLOPPY_SECTORS;      // 2880 секторов
+    *block_size  = FLOPPY_SECTOR_SIZE;  // 512 bytes
     
-    printf("[USB] Disk unmounted\n");
+    printf("[USB] Capacity request: %lu sectors x %u bytes\n", *block_count, *block_size);
 }
 
 /**
- * @brief Callback: Чтение блока (вызывается TinyUSB)
+ * @brief Callback: Получить информацию об устройстве (INQUIRY)
  */
-/*
+void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4]) {
+    (void)lun;
+    
+    const char vid[] = "RaspPi";
+    const char pid[] = "Floppy Emulator";
+    const char rev[] = "1.0";
+    
+    memcpy(vendor_id, vid, strlen(vid));
+    memcpy(product_id, pid, strlen(pid));
+    memcpy(product_rev, rev, strlen(rev));
+}
+
+/**
+ * @brief Callback: Чтение блоков (READ10 команда)
+ */
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
     (void)lun;
-    (void)offset;
+    (void)offset;  // offset всегда 0, так как читаем по одному сектору
     
-    // Читаем сектор из SD карты
-    if (sdcard_read_sector(lba, (uint8_t*)buffer)) {
-        return bufsize;
+    // Проверка границ
+    if (lba >= FLOPPY_SECTORS) {
+        printf("[USB] Read error: LBA %lu out of range\n", lba);
+        return -1;
     }
     
-    return -1;  // Ошибка
+    // Чтение через эмулятор (с кешем)
+    if (!floppy_read_sector(lba, (uint8_t*)buffer)) {
+        printf("[USB] Read error at LBA %lu\n", lba);
+        return -1;
+    }
+    
+    return bufsize;
 }
-*/
 
 /**
- * @brief Callback: Запись блока (вызывается TinyUSB)
+ * @brief Callback: Запись блоков (WRITE10 команда)
  */
-/*
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
     (void)lun;
     (void)offset;
     
-    // Записываем сектор на SD карту
-    if (sdcard_write_sector(lba, buffer)) {
-        return bufsize;
+    // Проверка границ
+    if (lba >= FLOPPY_SECTORS) {
+        printf("[USB] Write error: LBA %lu out of range\n", lba);
+        return -1;
     }
     
-    return -1;  // Ошибка
-}
-*/
-
-/**
- * @brief Callback: Получение емкости диска
- */
-/*
-void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) {
-    (void)lun;
+    // Запись через эмулятор (с кешем)
+    if (!floppy_write_sector(lba, buffer)) {
+        printf("[USB] Write error at LBA %lu\n", lba);
+        return -1;
+    }
     
-    *block_count = FLOPPY_TOTAL_SECTORS;
-    *block_size  = FLOPPY_SECTOR_SIZE;
+    return bufsize;
 }
-*/
 
 /**
- * @brief Callback: Готовность к операциям
+ * @brief Callback: Завершение операции записи (flush)
  */
-/*
-bool tud_msc_test_unit_ready_cb(uint8_t lun) {
+void tud_msc_write10_complete_cb(uint8_t lun) {
     (void)lun;
-    return sdcard_is_initialized() && usb_mounted;
+    // Здесь можно принудительно сбросить кеш, но у нас он и так умный
 }
-*/
 
 /**
- * @brief Основная функция задачи USB
+ * @brief Callback: SCSI команды (опциональные)
+ */
+int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void* buffer, uint16_t bufsize) {
+    void const* response = NULL;
+    int32_t resplen = 0;
+    
+    // Большинство команд обрабатываются TinyUSB автоматически
+    // Здесь можно добавить кастомные команды
+    
+    switch (scsi_cmd[0]) {
+        default:
+            // Неизвестная команда - установить ошибку
+            tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x20, 0x00);
+            resplen = -1;
+            break;
+    }
+    
+    // Копировать ответ в буфер
+    if (resplen > 0) {
+        if (resplen > bufsize) resplen = bufsize;
+        memcpy(buffer, response, resplen);
+    }
+    
+    return resplen;
+}
+
+//--------------------------------------------------------------------+
+// USB Task
+//--------------------------------------------------------------------+
+
+/**
+ * @brief Основная задача USB
  */
 void usb_task(void *pvParameters) {
     (void)pvParameters;
@@ -118,38 +168,36 @@ void usb_task(void *pvParameters) {
     printf("[USB] Task started\n");
     
     // Инициализация TinyUSB
-    usb_init_tinyusb();
+    printf("[USB] Initializing TinyUSB MSC device...\n");
+    tusb_init();
     
     usb_message_t msg;
     
     while (1) {
-        // Обработка USB событий (вызов tud_task)
-        // TODO: tud_task();
+        // Обработка событий TinyUSB
+        tud_task();
         
-        // Проверка команд из очереди (без блокировки)
+        // Обработка сообщений из очереди
         if (xQueueReceive(usb_queue, &msg, 0) == pdTRUE) {
-            switch (msg.command) {
-                case USB_CMD_MOUNT:
-                    usb_mount_disk();
+            switch (msg.type) {
+                case USB_MSG_LOAD_IMAGE:
+                    printf("[USB] Load image notification: %s\n", msg.data.image_name);
+                    // Образ уже загружен в floppy_emu, просто логируем
                     break;
                     
-                case USB_CMD_UNMOUNT:
-                    usb_unmount_disk();
-                    break;
-                    
-                case USB_CMD_EJECT:
-                    usb_unmount_disk();
+                case USB_MSG_EJECT:
+                    printf("[USB] Eject notification\n");
+                    // Образ извлечен из floppy_emu
                     break;
                     
                 default:
-                    printf("[USB] Unknown command: %d\n", msg.command);
+                    printf("[USB] Unknown message type: %d\n", msg.type);
                     break;
             }
         }
         
-        // TinyUSB рекомендует вызывать tud_task() как можно чаще
-        // С частотой 10кГц это будет каждые 100мкс
-        vTaskDelay(1);  // 100мкс при 10kHz tick rate
+        // Небольшая задержка чтобы не загружать CPU
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -157,27 +205,30 @@ void usb_task(void *pvParameters) {
  * @brief Инициализация задачи USB
  */
 void usb_task_init(void) {
-    // Создание очереди для команд
-    usb_queue = xQueueCreate(5, sizeof(usb_message_t));
+    printf("[USB] Initializing task...\n");
+    
+    // Создание очереди
+    usb_queue = xQueueCreate(8, sizeof(usb_message_t));
     
     if (usb_queue == NULL) {
         printf("[USB] Failed to create queue!\n");
         return;
     }
     
-    // Создание задачи с высоким приоритетом
+    // Создание задачи
     BaseType_t result = xTaskCreate(
-        usb_task,               // Функция задачи
-        "USB",                  // Имя задачи
-        1024,                   // Размер стека
-        NULL,                   // Параметры
-        TASK_PRIORITY_USB,      // Высокий приоритет
-        NULL                    // Дескриптор задачи
+        usb_task,
+        "USB",
+        STACK_SIZE_USB,
+        NULL,
+        TASK_PRIORITY_USB,
+        NULL
     );
     
     if (result != pdPASS) {
         printf("[USB] Failed to create task!\n");
-    } else {
-        printf("[USB] Task created successfully\n");
+        return;
     }
+    
+    printf("[USB] Task initialized successfully\n");
 }

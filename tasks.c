@@ -13,16 +13,19 @@ void tasks_init_all(void) {
     // 2. SD карта - инициализация хранилища
     sdcard_task_init();
     
-    // 3. OLED дисплей - для отображения
+    // 3. Floppy эмулятор - кеширование и эмуляция диска
+    floppy_emu_task_init();
+    
+    // 4. OLED дисплей - для отображения
     oled_task_init();
     
-    // 4. Menu - логика меню
+    // 5. Menu - логика меню
     menu_task_init();
     
-    // 5. Control - управление (зависит от menu_queue)
+    // 6. Control - управление (зависит от menu_queue)
     control_task_init();
     
-    // 6. USB - последней, так как зависит от SD карты
+    // 7. USB - последней, так как зависит от floppy эмулятора
     usb_task_init();
     
     printf("=== All tasks initialized ===\n");

@@ -1,6 +1,7 @@
 #include "menu_task.h"
 #include "oled_task.h"
 #include "sdcard_task.h"
+#include "floppy_emu_task.h"
 #include "sd_card.h"
 #include "config.h"
 #include <stdio.h>
@@ -207,16 +208,16 @@ static void handle_ok_press(void) {
         case MENU_STATE_FILE_CONFIRM:
             // Проверка выбора пользователя
             if (confirm_choice == 0) {
-                // Yes - загрузка образа
+                // Yes - загрузка образа в эмулятор
                 printf("[MENU] Loading image: %s\n", file_list[selected_file_index]);
                 current_state = MENU_STATE_LOADING;
                 update_oled_menu();
                 
-                // Отправить команду на загрузку образа
-                sdcard_message_t sd_msg;
-                sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
-                strncpy(sd_msg.data.filename, file_list[selected_file_index], 64);
-                xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+                // Отправить команду на загрузку образа в floppy эмулятор
+                floppy_message_t floppy_msg;
+                floppy_msg.command = FLOPPY_CMD_LOAD_IMAGE;
+                strncpy(floppy_msg.data.filename, file_list[selected_file_index], 64);
+                xQueueSend(floppy_queue, &floppy_msg, portMAX_DELAY);
             } else {
                 // No - вернуться в список файлов
                 printf("[MENU] Load cancelled\n");

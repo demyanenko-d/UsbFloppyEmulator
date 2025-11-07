@@ -13,6 +13,7 @@
 #include "tasks/control_task.h"
 #include "tasks/menu_task.h"
 #include "tasks/sdcard_task.h"
+#include "tasks/floppy_emu_task.h"
 #include "tasks/usb_task.h"
 #include "tasks/led_task.h"
 
