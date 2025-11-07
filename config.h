@@ -63,12 +63,16 @@
 #define DEBOUNCE_TIME_MS        50
 
 // FreeRTOS Configuration
-#define TASK_PRIORITY_UI        2
-#define TASK_PRIORITY_USB       3
-#define TASK_PRIORITY_STORAGE   2
+#define TASK_PRIORITY_CONTROL   4       // Высший приоритет - управление (энкодер/кнопки)
+#define TASK_PRIORITY_USB       3       // Высокий приоритет - USB
+#define TASK_PRIORITY_UI        2       // Средний приоритет - OLED и MENU
+#define TASK_PRIORITY_STORAGE   2       // Средний приоритет - SD карта
+#define TASK_PRIORITY_LED       1       // Низкий приоритет - LED индикация
 
-#define STACK_SIZE_UI           512
-#define STACK_SIZE_USB          1024
-#define STACK_SIZE_STORAGE      1024
+#define STACK_SIZE_CONTROL      256     // Управление - небольшой стек
+#define STACK_SIZE_USB          1024    // USB - большой стек для TinyUSB
+#define STACK_SIZE_UI           512     // UI задачи
+#define STACK_SIZE_STORAGE      1024    // Работа с файлами
+#define STACK_SIZE_LED          256     // LED - минимальный стек
 
 #endif // CONFIG_H
