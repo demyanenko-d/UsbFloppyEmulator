@@ -16,6 +16,7 @@ static menu_state_t current_state = MENU_STATE_MAIN;
 static uint8_t selected_index = 0;
 static uint8_t scroll_offset = 0;
 static uint8_t selected_file_index = 0;  // Сохраненный индекс выбранного файла
+static uint8_t confirm_choice = 0;       // 0=Yes, 1=No для подтверждения
 
 // Список файлов (будет заполняться из sdcard_task)
 static char file_list[MAX_IMAGES][32];
@@ -55,11 +56,16 @@ static void update_oled_menu(void) {
             break;
             
         case MENU_STATE_FILE_CONFIRM:
-            strcpy(msg.data.menu.items[0], "Load Image?");
-            snprintf(msg.data.menu.items[1], 32, "%.20s", file_list[selected_file_index]);
-            strcpy(msg.data.menu.items[2], "OK=Yes  Back=No");
+            snprintf(msg.data.menu.items[0], 32, "Load %.20s?", file_list[selected_file_index]);
+            if (confirm_choice == 0) {
+                strcpy(msg.data.menu.items[1], "> Yes");
+                strcpy(msg.data.menu.items[2], "  No");
+            } else {
+                strcpy(msg.data.menu.items[1], "  Yes");
+                strcpy(msg.data.menu.items[2], "> No");
+            }
             msg.data.menu.item_count = 3;
-            msg.data.menu.selected_index = 0;
+            msg.data.menu.selected_index = confirm_choice + 1;  // +1 т.к. первая строка - вопрос
             break;
             
         case MENU_STATE_LOADING:
@@ -93,6 +99,12 @@ static void handle_navigation(bool is_up) {
         case MENU_STATE_FILE_LIST:
             max_index = file_count > 0 ? file_count - 1 : 0;
             break;
+            
+        case MENU_STATE_FILE_CONFIRM:
+            // Переключение между Yes/No
+            confirm_choice = is_up ? 0 : 1;
+            update_oled_menu();
+            return;
             
         default:
             return;
@@ -186,22 +198,38 @@ static void handle_ok_press(void) {
             if (file_count > 0) {
                 printf("[MENU] File selected: %s\n", file_list[selected_index]);
                 selected_file_index = selected_index;  // Сохранить выбранный файл
+                confirm_choice = 0;  // По умолчанию Yes
                 current_state = MENU_STATE_FILE_CONFIRM;
                 update_oled_menu();
             }
             break;
             
         case MENU_STATE_FILE_CONFIRM:
-            // Загрузка образа
-            printf("[MENU] Loading image: %s\n", file_list[selected_file_index]);
-            current_state = MENU_STATE_LOADING;
-            update_oled_menu();
-            
-            // Отправить команду на загрузку образа
-            sdcard_message_t sd_msg;
-            sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
-            strncpy(sd_msg.data.filename, file_list[selected_file_index], 64);
-            xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+            // Проверка выбора пользователя
+            if (confirm_choice == 0) {
+                // Yes - загрузка образа
+                printf("[MENU] Loading image: %s\n", file_list[selected_file_index]);
+                current_state = MENU_STATE_LOADING;
+                update_oled_menu();
+                
+                // Отправить команду на загрузку образа
+                sdcard_message_t sd_msg;
+                sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
+                strncpy(sd_msg.data.filename, file_list[selected_file_index], 64);
+                xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+            } else {
+                // No - вернуться в список файлов
+                printf("[MENU] Load cancelled\n");
+                current_state = MENU_STATE_FILE_LIST;
+                selected_index = selected_file_index;
+                // Восстановить прокрутку
+                if (selected_index >= MENU_ITEMS_PER_PAGE) {
+                    scroll_offset = selected_index - MENU_ITEMS_PER_PAGE + 1;
+                } else {
+                    scroll_offset = 0;
+                }
+                update_oled_menu();
+            }
             break;
             
         case MENU_STATE_SD_INFO:
