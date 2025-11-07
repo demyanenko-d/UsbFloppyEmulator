@@ -50,8 +50,15 @@ extern "C" {
 // Enable Device stack
 #define CFG_TUD_ENABLED       1
 
+// RHPort number used for device
+#ifndef CFG_TUSB_RHPORT0_MODE
+#define CFG_TUSB_RHPORT0_MODE   OPT_MODE_DEVICE
+#endif
+
 // Default is max speed that hardware controller could support with on-chip PHY
-#define CFG_TUD_MAX_SPEED     BOARD_TUD_MAX_SPEED
+#ifndef CFG_TUD_MAX_SPEED
+#define CFG_TUD_MAX_SPEED     OPT_MODE_FULL_SPEED
+#endif
 
 /* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
  * Tinyusb use follows macros to declare transferring memory so that they can be put

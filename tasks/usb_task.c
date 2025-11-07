@@ -179,19 +179,17 @@ void usb_task(void *pvParameters) {
         
         // Обработка сообщений из очереди
         if (xQueueReceive(usb_queue, &msg, 0) == pdTRUE) {
-            switch (msg.type) {
-                case USB_MSG_LOAD_IMAGE:
-                    printf("[USB] Load image notification: %s\n", msg.data.image_name);
-                    // Образ уже загружен в floppy_emu, просто логируем
+            switch (msg.command) {
+                case USB_CMD_MOUNT:
+                    printf("[USB] Mount disk\n");
                     break;
                     
-                case USB_MSG_EJECT:
-                    printf("[USB] Eject notification\n");
-                    // Образ извлечен из floppy_emu
+                case USB_CMD_UNMOUNT:
+                    printf("[USB] Unmount disk\n");
                     break;
                     
-                default:
-                    printf("[USB] Unknown message type: %d\n", msg.type);
+                case USB_CMD_EJECT:
+                    printf("[USB] Eject disk\n");
                     break;
             }
         }
