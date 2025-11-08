@@ -205,6 +205,11 @@ static void handle_ok_press(void) {
             if (selected_index == 0) {
                 // Запрос списка файлов из sdcard_task
                 printf("[MENU] Requesting file list from SD card\n");
+                printf("[MENU] Current path: %s, in_subdirectory: %d\n", current_path, in_subdirectory);
+                
+                // Убедиться что мы всегда начинаем с корня
+                strcpy(current_path, "/");
+                in_subdirectory = false;
                 
                 sdcard_message_t sd_msg;
                 sd_msg.command = SDCARD_CMD_LIST_IMAGES;
@@ -413,6 +418,11 @@ static void handle_ok_press(void) {
                 
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 
+                // Сбросить состояние навигации
+                strcpy(current_path, "/");
+                in_subdirectory = false;
+                file_count = 0;
+                
                 // Вернуться в главное меню
                 current_state = MENU_STATE_MAIN;
                 selected_index = 0;
@@ -454,6 +464,13 @@ static void handle_back_press(void) {
     switch (current_state) {
         case MENU_STATE_FILE_LIST:
             // Из списка файлов в главное меню
+            printf("[MENU] Returning to main menu from file list\n");
+            
+            // Сбросить состояние навигации
+            strcpy(current_path, "/");
+            in_subdirectory = false;
+            file_count = 0;
+            
             current_state = MENU_STATE_MAIN;
             selected_index = 0;
             scroll_offset = 0;
