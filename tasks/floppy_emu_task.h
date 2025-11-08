@@ -1,6 +1,7 @@
 #ifndef FLOPPY_EMU_TASK_H
 #define FLOPPY_EMU_TASK_H
 
+#include "config.h"  // Нужно для CACHE_SIZE_KB
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -37,9 +38,9 @@ static const floppy_geometry_t floppy_formats[] = {
 #define FLOPPY_SECTORS          2880  // 1.44MB / 512 bytes (максимальный размер)
 #define FLOPPY_FAT12_SECTORS    33    // FAT12 для 1.44MB (максимальный размер)
 
-// Конфигурация кеша
-#define CACHE_TOTAL_SIZE        (320 * 1024)  // 320 KB общий кеш
-#define CACHE_BLOCK_SECTORS     8              // Блок = 8 секторов (4KB)
+// Конфигурация кеша - зависит от платформы
+#define CACHE_TOTAL_SIZE        (CACHE_SIZE_KB * 1024)  // 320KB для Pico2, 160KB для Pico1
+#define CACHE_BLOCK_SECTORS     8                        // Блок = 8 секторов (4KB)
 #define CACHE_BLOCK_SIZE        (CACHE_BLOCK_SECTORS * FLOPPY_SECTOR_SIZE)
 #define CACHE_FAT_BLOCKS        ((FLOPPY_FAT12_SECTORS + CACHE_BLOCK_SECTORS - 1) / CACHE_BLOCK_SECTORS) // ~5 блоков для FAT
 #define CACHE_DATA_SIZE         (CACHE_TOTAL_SIZE - (CACHE_FAT_BLOCKS * CACHE_BLOCK_SIZE))

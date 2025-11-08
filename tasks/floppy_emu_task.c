@@ -107,8 +107,10 @@ static void cache_init(void) {
     floppy_info.cache_hits = 0;
     floppy_info.cache_misses = 0;
     
-    printf("[FLOPPY] Cache initialized: FAT=%d blocks, Data=%d blocks\n",
-           CACHE_FAT_BLOCKS, CACHE_DATA_BLOCKS);
+    printf("[FLOPPY] Cache initialized:\n");
+    printf("[FLOPPY]   Total: %d KB\n", CACHE_TOTAL_SIZE / 1024);
+    printf("[FLOPPY]   FAT blocks: %d (%d KB)\n", CACHE_FAT_BLOCKS, (CACHE_FAT_BLOCKS * CACHE_BLOCK_SIZE) / 1024);
+    printf("[FLOPPY]   Data blocks: %d (%d KB)\n", CACHE_DATA_BLOCKS, (CACHE_DATA_BLOCKS * CACHE_BLOCK_SIZE) / 1024);
 }
 
 /**

@@ -1,18 +1,32 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Pin Configuration
+// Hardware Detection
+// Автоматическое определение платформы по доступной памяти
+// Pico 1: 264KB SRAM
+// Pico 2: 520KB SRAM
+#if defined(PICO_RP2350)
+    #define IS_PICO2 1
+    #define CACHE_SIZE_KB 320
+#else
+    #define IS_PICO2 0
+    #define CACHE_SIZE_KB 160
+#endif
+
+// Pin Configuration (GPIO0-GPIO15 для совместимости с nano RP2040/RP2350)
+// GPIO0, GPIO1 зарезервированы для UART (отладка)
+
 // SPI for SD Card
 #define SD_SPI_PORT     spi0
-#define SD_PIN_MISO     16
-#define SD_PIN_CS       17
-#define SD_PIN_SCK      18
-#define SD_PIN_MOSI     19
+#define SD_PIN_MISO     4    // Было 16, теперь 4
+#define SD_PIN_CS       5    // Было 17, теперь 5
+#define SD_PIN_SCK      6    // Было 18, теперь 6
+#define SD_PIN_MOSI     7    // Было 19, теперь 7
 
 // I2C for OLED Display
 #define OLED_I2C_PORT   i2c0
-#define OLED_I2C_SDA    8
-#define OLED_I2C_SCL    9
+#define OLED_I2C_SDA    2    // Было 8, теперь 2 (GPIO0,1 для UART)
+#define OLED_I2C_SCL    3    // Было 9, теперь 3
 #define OLED_I2C_ADDR   0x3C
 #define OLED_WIDTH      128
 #define OLED_HEIGHT     32  // Можно изменить на 64

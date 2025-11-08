@@ -39,7 +39,17 @@ int main() {
     printf("========================================\n");
     printf("  USB Floppy Disk Drive Emulator\n");
     printf("  FreeRTOS @ %d Hz tick rate\n", configTICK_RATE_HZ);
-    printf("  RP2040 @ %d MHz\n", configCPU_CLOCK_HZ / 1000000);
+    
+    // Определение платформы
+#ifdef PICO_RP2350
+    printf("  Platform: Raspberry Pi Pico 2 (RP2350)\n");
+    printf("  Cache: %d KB\n", CACHE_SIZE_KB);
+#else
+    printf("  Platform: Raspberry Pi Pico (RP2040)\n");
+    printf("  Cache: %d KB\n", CACHE_SIZE_KB);
+#endif
+    
+    printf("  CPU: %d MHz\n", configCPU_CLOCK_HZ / 1000000);
     printf("========================================\n");
     printf("\n");
     
