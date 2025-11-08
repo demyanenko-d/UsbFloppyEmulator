@@ -11,8 +11,10 @@ QueueHandle_t usb_queue = NULL;
 
 // Состояние USB
 static bool usb_mounted = false;
-static bool media_changed = false;  // Флаг изменения медиа
+static bool media_changed = false;     // Флаг изменения медиа
 static bool last_ready_state = false;  // Предыдущее состояние готовности
+static uint32_t last_sector_count = 0; // Предыдущий размер диска
+static uint8_t media_change_count = 0; // Счетчик для множественных уведомлений
 
 //--------------------------------------------------------------------+
 // USB MSC Callbacks (TinyUSB)
@@ -24,6 +26,12 @@ static bool last_ready_state = false;  // Предыдущее состояни�
 void tud_mount_cb(void) {
     printf("[USB] Device mounted\n");
     usb_mounted = true;
+    
+    // Сбросить состояние при подключении
+    media_changed = false;
+    media_change_count = 0;
+    last_ready_state = false;
+    last_sector_count = 0;
 }
 
 /**
@@ -43,20 +51,37 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun) {
     // Диск готов если образ загружен в эмулятор
     bool ready = floppy_is_ready();
     
-    // Отслеживание изменения медиа
-    if (ready != last_ready_state) {
+    // Получить текущий размер диска
+    const floppy_info_t* info = floppy_get_info();
+    uint32_t current_sector_count = (info != NULL && info->total_sectors > 0) ? info->total_sectors : FLOPPY_SECTORS;
+    
+    // Отслеживание изменения медиа (состояние или размер)
+    bool state_changed = (ready != last_ready_state);
+    bool size_changed = (ready && current_sector_count != last_sector_count);
+    
+    if (state_changed || size_changed) {
         media_changed = true;
+        media_change_count = 3;  // Уведомить хост несколько раз для надежности
         last_ready_state = ready;
-        printf("[USB] Media state changed: %s\n", ready ? "READY" : "NOT READY");
+        last_sector_count = current_sector_count;
+        
+        if (state_changed) {
+            printf("[USB] Media state changed: %s\n", ready ? "READY" : "NOT READY");
+        }
+        if (size_changed) {
+            printf("[USB] Media size changed: %lu sectors\n", current_sector_count);
+        }
     }
     
     if (!ready) {
         // Установить код ошибки "medium not present"
         tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
-    } else if (media_changed) {
-        // Носитель был изменен - сообщить хосту
+        return false;
+    } else if (media_change_count > 0) {
+        // Носитель был изменен - сообщить хосту несколько раз
         tud_msc_set_sense(lun, SCSI_SENSE_UNIT_ATTENTION, 0x28, 0x00);
-        media_changed = false;
+        media_change_count--;
+        printf("[USB] Reporting media change to host (remaining: %d)\n", media_change_count);
         return false;  // Вернуть false чтобы хост переопросил
     }
     
