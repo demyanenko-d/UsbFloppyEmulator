@@ -21,6 +21,7 @@ typedef struct {
     sdcard_cmd_t command;
     union {
         char filename[64];
+        char path[128];  // Путь для SDCARD_CMD_LIST_IMAGES
         struct {
             uint32_t sector;
             uint8_t *buffer;

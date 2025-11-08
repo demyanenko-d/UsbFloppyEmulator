@@ -20,6 +20,10 @@ static uint8_t selected_file_index = 0;  // Сохраненный индекс 
 static uint8_t confirm_choice = 0;       // 0=Yes, 1=No для подтверждения
 static uint8_t eject_choice = 0;         // 0=Yes, 1=No для извлечения
 
+// Навигация по каталогам
+static char current_path[128] = "/";     // Текущий путь
+static bool in_subdirectory = false;     // Находимся в подкаталоге
+
 // Список файлов (будет заполняться из sdcard_task)
 static char file_list[MAX_IMAGES][32];
 static uint8_t file_count = 0;
@@ -40,15 +44,32 @@ static void update_oled_menu(void) {
             msg.data.menu.selected_index = selected_index;
             break;
             
-        case MENU_STATE_FILE_LIST:
+        case MENU_STATE_FILE_LIST: {
             // Показываем файлы с учетом прокрутки
+            // Первый пункт всегда "< Back"
             msg.data.menu.item_count = 0;
-            for (uint8_t i = 0; i < MENU_ITEMS_PER_PAGE && (scroll_offset + i) < file_count; i++) {
-                strcpy(msg.data.menu.items[i], file_list[scroll_offset + i]);
-                msg.data.menu.item_count++;
+            
+            if (scroll_offset == 0) {
+                // Первая страница - показываем "< Back"
+                strcpy(msg.data.menu.items[0], "< Back");
+                msg.data.menu.item_count = 1;
+                
+                // Заполняем остальные пункты файлами
+                for (uint8_t i = 1; i < MENU_ITEMS_PER_PAGE && i < file_count; i++) {
+                    strcpy(msg.data.menu.items[i], file_list[i]);
+                    msg.data.menu.item_count++;
+                }
+            } else {
+                // Не первая страница - показываем только файлы
+                for (uint8_t i = 0; i < MENU_ITEMS_PER_PAGE && (scroll_offset + i) < file_count; i++) {
+                    strcpy(msg.data.menu.items[i], file_list[scroll_offset + i]);
+                    msg.data.menu.item_count++;
+                }
             }
+            
             msg.data.menu.selected_index = selected_index - scroll_offset;
             break;
+        }
             
         case MENU_STATE_SD_INFO:
             strcpy(msg.data.menu.items[0], "SD Card Info");
@@ -172,6 +193,7 @@ static void handle_ok_press(void) {
                 
                 sdcard_message_t sd_msg;
                 sd_msg.command = SDCARD_CMD_LIST_IMAGES;
+                sd_msg.data.path[0] = '\0';  // Пустой путь = корневой каталог
                 xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
                 
                 // Переходим в состояние загрузки и ждем ответ
@@ -218,11 +240,97 @@ static void handle_ok_press(void) {
             
         case MENU_STATE_FILE_LIST:
             if (file_count > 0) {
-                printf("[MENU] File selected: %s\n", file_list[selected_index]);
-                selected_file_index = selected_index;  // Сохранить выбранный файл
-                confirm_choice = 0;  // По умолчанию Yes
-                current_state = MENU_STATE_FILE_CONFIRM;
-                update_oled_menu();
+                // Проверяем, выбран ли "< Back"
+                if (selected_index == 0) {
+                    // Возврат в главное меню (или в родительский каталог)
+                    printf("[MENU] Back selected\n");
+                    
+                    if (in_subdirectory) {
+                        // Вернуться в родительский каталог
+                        // Найти последний слэш в пути
+                        char *last_slash = strrchr(current_path, '/');
+                        if (last_slash != NULL && last_slash != current_path) {
+                            // Обрезать путь до родительского каталога
+                            *last_slash = '\0';
+                        } else {
+                            // Вернуться в корень
+                            strcpy(current_path, "/");
+                        }
+                        
+                        // Проверить, остались ли в подкаталоге
+                        if (strcmp(current_path, "/") == 0) {
+                            in_subdirectory = false;
+                        }
+                        
+                        printf("[MENU] Returning to: %s\n", current_path);
+                        
+                        // Запросить список файлов
+                        sdcard_message_t sd_msg;
+                        sd_msg.command = SDCARD_CMD_LIST_IMAGES;
+                        strncpy(sd_msg.data.path, current_path, sizeof(sd_msg.data.path) - 1);
+                        sd_msg.data.path[sizeof(sd_msg.data.path) - 1] = '\0';
+                        xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+                        
+                        current_state = MENU_STATE_LOADING;
+                        selected_index = 0;
+                        scroll_offset = 0;
+                        update_oled_menu();
+                    } else {
+                        // Возврат в главное меню
+                        current_state = MENU_STATE_MAIN;
+                        selected_index = 0;
+                        update_oled_menu();
+                    }
+                } else {
+                    // Файл или каталог выбран
+                    printf("[MENU] File selected: %s\n", file_list[selected_index]);
+                    
+                    // Проверка, это каталог или файл
+                    if (file_list[selected_index][0] == '[') {
+                        // Это каталог - входим в него
+                        char dirname[32];
+                        int len = strlen(file_list[selected_index]);
+                        // Извлечь имя каталога без скобок [dirname] -> dirname
+                        strncpy(dirname, file_list[selected_index] + 1, len - 2);
+                        dirname[len - 2] = '\0';
+                        
+                        printf("[MENU] Entering directory: %s\n", dirname);
+                        printf("[MENU] Current path before: %s\n", current_path);
+                        
+                        // Обновить путь
+                        if (strlen(current_path) > 1) {
+                            strcat(current_path, "/");
+                        }
+                        strcat(current_path, dirname);
+                        in_subdirectory = true;
+                        
+                        printf("[MENU] New path: %s\n", current_path);
+                        
+                        // Очистить старый список файлов
+                        file_count = 0;
+                        
+                        // Запросить список файлов в подкаталоге
+                        sdcard_message_t sd_msg;
+                        sd_msg.command = SDCARD_CMD_LIST_IMAGES;
+                        strncpy(sd_msg.data.path, current_path, sizeof(sd_msg.data.path) - 1);
+                        sd_msg.data.path[sizeof(sd_msg.data.path) - 1] = '\0';
+                        xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+                        
+                        printf("[MENU] Switching to LOADING state\n");
+                        
+                        // Переход в состояние загрузки
+                        current_state = MENU_STATE_LOADING;
+                        selected_index = 0;
+                        scroll_offset = 0;
+                        update_oled_menu();
+                    } else {
+                        // Это файл образа
+                        selected_file_index = selected_index;
+                        confirm_choice = 0;  // По умолчанию Yes
+                        current_state = MENU_STATE_FILE_CONFIRM;
+                        update_oled_menu();
+                    }
+                }
             }
             break;
             
@@ -234,10 +342,22 @@ static void handle_ok_press(void) {
                 current_state = MENU_STATE_LOADING;
                 update_oled_menu();
                 
+                // Построить полный путь к файлу
+                char full_path[128];
+                if (in_subdirectory && strcmp(current_path, "/") != 0) {
+                    // Файл в подкаталоге
+                    snprintf(full_path, sizeof(full_path), "%s/%s", current_path, file_list[selected_file_index]);
+                } else {
+                    // Файл в корне
+                    snprintf(full_path, sizeof(full_path), "/%s", file_list[selected_file_index]);
+                }
+                
+                printf("[MENU] Full path: %s\n", full_path);
+                
                 // Отправить команду на загрузку образа в floppy эмулятор
                 floppy_message_t floppy_msg;
                 floppy_msg.command = FLOPPY_CMD_LOAD_IMAGE;
-                strncpy(floppy_msg.data.filename, file_list[selected_file_index], 64);
+                strncpy(floppy_msg.data.filename, full_path, 64);
                 xQueueSend(floppy_queue, &floppy_msg, portMAX_DELAY);
                 
                 // Ждем пока загрузится (floppy_emu покажет прогресс)
@@ -373,23 +493,44 @@ void menu_task(void *pvParameters) {
             printf("[MENU] Received SD card response\n");
             
             if (current_state == MENU_STATE_LOADING) {
+                printf("[MENU] SD response: success=%d, count=%d\n", 
+                       sd_response.success, sd_response.data.file_list.count);
+                
                 if (sd_response.success && sd_response.data.file_list.count > 0) {
                     // Получен список файлов
-                    file_count = sd_response.data.file_list.count;
-                    for (uint8_t i = 0; i < file_count && i < MAX_IMAGES; i++) {
-                        strncpy(file_list[i], sd_response.data.file_list.files[i], 31);
-                        file_list[i][31] = '\0';
+                    // Сдвинем массив на 1 чтобы освободить место для "< Back"
+                    file_count = sd_response.data.file_list.count + 1;  // +1 для "< Back"
+                    
+                    // Первый элемент - "< Back"
+                    strcpy(file_list[0], "< Back");
+                    
+                    // Остальные - файлы с SD карты
+                    for (uint8_t i = 0; i < sd_response.data.file_list.count && i < (MAX_IMAGES - 1); i++) {
+                        strncpy(file_list[i + 1], sd_response.data.file_list.files[i], 31);
+                        file_list[i + 1][31] = '\0';
                     }
                     
-                    printf("[MENU] Loaded %d files from SD card\n", file_count);
+                    printf("[MENU] Loaded %d files from SD card (+ Back button)\n", file_count - 1);
+                    
+                    current_state = MENU_STATE_FILE_LIST;
+                    selected_index = 0;
+                    scroll_offset = 0;
+                    update_oled_menu();
+                } else if (sd_response.success && sd_response.data.file_list.count == 0) {
+                    // Нет файлов, но SD карта работает
+                    printf("[MENU] No .img files found in root directory\n");
+                    
+                    // Показать сообщение вместо ошибки
+                    file_count = 1;
+                    strcpy(file_list[0], "< Back");
                     
                     current_state = MENU_STATE_FILE_LIST;
                     selected_index = 0;
                     scroll_offset = 0;
                     update_oled_menu();
                 } else {
-                    // Ошибка или нет файлов
-                    printf("[MENU] No files found or SD error\n");
+                    // Ошибка SD карты
+                    printf("[MENU] SD card error\n");
                     current_state = MENU_STATE_ERROR;
                     update_oled_menu();
                 }

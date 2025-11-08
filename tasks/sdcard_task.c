@@ -121,9 +121,10 @@ static void sdcard_unmount(void) {
 
 /**
  * @brief Получение списка .img файлов
+ * @param path Путь к каталогу (например "/" или "/subdir")
  */
-static void sdcard_list_images(void) {
-    printf("[SDCARD] Listing .img files...\n");
+static void sdcard_list_images(const char *path) {
+    printf("[SDCARD] Listing .img files in: %s\n", path);
     
     if (!card_initialized || !fs_mounted) {
         printf("[SDCARD] Card not initialized!\n");
@@ -143,24 +144,36 @@ static void sdcard_list_images(void) {
     FILINFO fno;
     FRESULT res;
     
-    // Открыть корневую директорию
-    res = f_opendir(&dir, "/");
+    // Открыть указанную директорию
+    res = f_opendir(&dir, path);
     if (res != FR_OK) {
-        printf("[SDCARD] Failed to open root directory (error %d)\n", res);
+        printf("[SDCARD] Failed to open directory %s (error %d)\n", path, res);
         response.success = false;
         xQueueSend(sdcard_response_queue, &response, portMAX_DELAY);
         return;
     }
     
-    // Перебрать все файлы
+    // Перебрать все файлы и каталоги
     while (response.data.file_list.count < 32) {  // Максимум 32 файла из sdcard_task.h
         res = f_readdir(&dir, &fno);
         if (res != FR_OK || fno.fname[0] == 0) {
             break;  // Ошибка или конец директории
         }
         
-        // Пропустить директории и скрытые файлы
+        // Пропустить скрытые файлы и системные файлы
+        if (fno.fname[0] == '.' || (fno.fattrib & AM_HID) || (fno.fattrib & AM_SYS)) {
+            continue;
+        }
+        
+        // Если это каталог - добавить с префиксом [DIR]
         if (fno.fattrib & AM_DIR) {
+            // Добавить каталог в список с префиксом
+            snprintf(response.data.file_list.files[response.data.file_list.count],
+                    32, "[%s]", fno.fname);
+            response.data.file_list.files[response.data.file_list.count][31] = '\0';
+            
+            printf("[SDCARD] Found directory: %s\n", fno.fname);
+            response.data.file_list.count++;
             continue;
         }
         
@@ -345,7 +358,7 @@ void sdcard_task(void *pvParameters) {
                 // Попытка инициализации
                 if (sdcard_init_card()) {
                     // Автоматически получить список файлов после успешной инициализации
-                    sdcard_list_images();
+                    sdcard_list_images("/");  // Корневой каталог по умолчанию
                 }
             }
         }
@@ -355,7 +368,12 @@ void sdcard_task(void *pvParameters) {
         if (xQueueReceive(sdcard_queue, &msg, pdMS_TO_TICKS(100)) == pdTRUE) {
             switch (msg.command) {
                 case SDCARD_CMD_LIST_IMAGES:
-                    sdcard_list_images();
+                    // Использовать путь из сообщения или корневой каталог
+                    if (msg.data.path[0] != '\0') {
+                        sdcard_list_images(msg.data.path);
+                    } else {
+                        sdcard_list_images("/");
+                    }
                     break;
                     
                 case SDCARD_CMD_LOAD_IMAGE:
