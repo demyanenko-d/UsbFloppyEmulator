@@ -335,17 +335,9 @@ static void floppy_load_image(const char *filename) {
     printf("[FLOPPY] Image loaded successfully\n");
     printf("[FLOPPY] FAT area: %lu KB in cache\n", floppy_info.total_fat_kb);
     
-    // Показать готовность
-    oled_msg.command = OLED_CMD_SHOW_STATUS;
-    strcpy(oled_msg.data.status.status_line1, "Disk Ready");
-    snprintf(oled_msg.data.status.status_line2, 32, "%.20s", filename);
-    
-    if (oled_queue != NULL) {
-        xQueueSend(oled_queue, &oled_msg, pdMS_TO_TICKS(100));
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(1500));
+    // Menu task сам обнаружит через floppy_is_ready() и переключится в DISK_LOADED
 }
+
 
 /**
  * @brief Извлечение образа
@@ -376,11 +368,15 @@ static void floppy_eject_image(void) {
     sd_msg.command = SDCARD_CMD_EJECT;
     xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
     
+    // Изменить статус ПЕРЕД отправкой в USB
     floppy_info.status = FLOPPY_STATUS_NO_IMAGE;
     floppy_info.current_image[0] = '\0';
     floppy_info.loaded_kb = 0;
     
-    printf("[FLOPPY] Image ejected\n");
+    printf("[FLOPPY] Image ejected, cache cleared\n");
+    
+    // Уведомить USB task об извлечении (опционально)
+    // USB автоматически обнаружит через floppy_is_ready()
 }
 
 /**

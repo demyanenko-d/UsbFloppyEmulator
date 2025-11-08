@@ -18,6 +18,7 @@ static uint8_t selected_index = 0;
 static uint8_t scroll_offset = 0;
 static uint8_t selected_file_index = 0;  // Сохраненный индекс выбранного файла
 static uint8_t confirm_choice = 0;       // 0=Yes, 1=No для подтверждения
+static uint8_t eject_choice = 0;         // 0=Yes, 1=No для извлечения
 
 // Список файлов (будет заполняться из sdcard_task)
 static char file_list[MAX_IMAGES][32];
@@ -34,7 +35,7 @@ static void update_oled_menu(void) {
         case MENU_STATE_MAIN:
             strcpy(msg.data.menu.items[0], "Select Image");
             strcpy(msg.data.menu.items[1], "SD Card Info");
-            strcpy(msg.data.menu.items[2], "Eject Disk");
+            strcpy(msg.data.menu.items[2], "");
             msg.data.menu.item_count = 3;
             msg.data.menu.selected_index = selected_index;
             break;
@@ -75,6 +76,27 @@ static void update_oled_menu(void) {
             msg.data.menu.selected_index = 0;
             break;
             
+        case MENU_STATE_DISK_LOADED: {
+            // Экран после загрузки: Disk Ready / Имя файла / Eject >> Yes No
+            const floppy_info_t* info = floppy_get_info();
+            strcpy(msg.data.menu.items[0], "Disk Ready");
+            if (info != NULL && info->current_image[0] != '\0') {
+                snprintf(msg.data.menu.items[1], 32, "%.20s", info->current_image);
+            } else {
+                strcpy(msg.data.menu.items[1], "");
+            }
+            
+            // Третья строка с переключением Yes/No
+            if (eject_choice == 0) {
+                strcpy(msg.data.menu.items[2], "Eject >> Yes  No");
+            } else {
+                strcpy(msg.data.menu.items[2], "Eject    Yes >>No");
+            }
+            msg.data.menu.item_count = 3;
+            msg.data.menu.selected_index = 2;  // Курсор всегда на третьей строке
+            break;
+        }
+            
         case MENU_STATE_ERROR:
             strcpy(msg.data.menu.items[0], "Error!");
             strcpy(msg.data.menu.items[1], "Press OK");
@@ -94,7 +116,7 @@ static void handle_navigation(bool is_up) {
     
     switch (current_state) {
         case MENU_STATE_MAIN:
-            max_index = 2;  // 3 пункта: Select Image, SD Card Info, Eject Disk
+            max_index = 1;  // 2 пункта: Select Image, SD Card Info
             break;
             
         case MENU_STATE_FILE_LIST:
@@ -104,6 +126,12 @@ static void handle_navigation(bool is_up) {
         case MENU_STATE_FILE_CONFIRM:
             // Переключение между Yes/No
             confirm_choice = is_up ? 0 : 1;
+            update_oled_menu();
+            return;
+            
+        case MENU_STATE_DISK_LOADED:
+            // Переключение между Yes/No для извлечения
+            eject_choice = is_up ? 0 : 1;
             update_oled_menu();
             return;
             
@@ -185,13 +213,6 @@ static void handle_ok_press(void) {
                 }
                 
                 xQueueSend(oled_queue, &oled_msg, portMAX_DELAY);
-                
-            } else if (selected_index == 2) {
-                // Eject disk
-                printf("[MENU] Ejecting disk\n");
-                sdcard_message_t sd_msg;
-                sd_msg.command = SDCARD_CMD_EJECT;
-                xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
             }
             break;
             
@@ -218,6 +239,10 @@ static void handle_ok_press(void) {
                 floppy_msg.command = FLOPPY_CMD_LOAD_IMAGE;
                 strncpy(floppy_msg.data.filename, file_list[selected_file_index], 64);
                 xQueueSend(floppy_queue, &floppy_msg, portMAX_DELAY);
+                
+                // Ждем пока загрузится (floppy_emu покажет прогресс)
+                // После загрузки автоматически перейдем в DISK_LOADED
+                // Это произойдет в основном цикле menu_task
             } else {
                 // No - вернуться в список файлов
                 printf("[MENU] Load cancelled\n");
@@ -230,6 +255,39 @@ static void handle_ok_press(void) {
                     scroll_offset = 0;
                 }
                 update_oled_menu();
+            }
+            break;
+            
+        case MENU_STATE_DISK_LOADED:
+            // Обработка выбора Yes/No для извлечения
+            if (eject_choice == 0) {
+                // Yes - извлечь диск
+                printf("[MENU] Ejecting disk\n");
+                
+                // Отправить команду извлечения в floppy emulator
+                floppy_message_t floppy_msg;
+                floppy_msg.command = FLOPPY_CMD_EJECT_IMAGE;
+                xQueueSend(floppy_queue, &floppy_msg, portMAX_DELAY);
+                
+                // Показать статус извлечения
+                oled_message_t oled_msg;
+                oled_msg.command = OLED_CMD_SHOW_STATUS;
+                strcpy(oled_msg.data.status.status_line1, "Disk Ejected");
+                strcpy(oled_msg.data.status.status_line2, "");
+                xQueueSend(oled_queue, &oled_msg, pdMS_TO_TICKS(100));
+                
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                
+                // Вернуться в главное меню
+                current_state = MENU_STATE_MAIN;
+                selected_index = 0;
+                eject_choice = 0;
+                update_oled_menu();
+            } else {
+                // No - остаться на экране Disk Ready
+                // Можно вернуться в главное меню или оставить как есть
+                printf("[MENU] Eject cancelled\n");
+                // Просто остаемся на том же экране
             }
             break;
             
@@ -372,6 +430,14 @@ void menu_task(void *pvParameters) {
                 default:
                     break;
             }
+        }
+        
+        // Проверка: если в состоянии LOADING и диск загрузился, переходим в DISK_LOADED
+        if (current_state == MENU_STATE_LOADING && floppy_is_ready()) {
+            printf("[MENU] Disk loaded, switching to DISK_LOADED state\n");
+            current_state = MENU_STATE_DISK_LOADED;
+            eject_choice = 0;  // По умолчанию Yes
+            update_oled_menu();
         }
     }
 }

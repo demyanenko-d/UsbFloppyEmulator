@@ -11,6 +11,8 @@ QueueHandle_t usb_queue = NULL;
 
 // Состояние USB
 static bool usb_mounted = false;
+static bool media_changed = false;  // Флаг изменения медиа
+static bool last_ready_state = false;  // Предыдущее состояние готовности
 
 //--------------------------------------------------------------------+
 // USB MSC Callbacks (TinyUSB)
@@ -41,9 +43,21 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun) {
     // Диск готов если образ загружен в эмулятор
     bool ready = floppy_is_ready();
     
+    // Отслеживание изменения медиа
+    if (ready != last_ready_state) {
+        media_changed = true;
+        last_ready_state = ready;
+        printf("[USB] Media state changed: %s\n", ready ? "READY" : "NOT READY");
+    }
+    
     if (!ready) {
         // Установить код ошибки "medium not present"
         tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
+    } else if (media_changed) {
+        // Носитель был изменен - сообщить хосту
+        tud_msc_set_sense(lun, SCSI_SENSE_UNIT_ATTENTION, 0x28, 0x00);
+        media_changed = false;
+        return false;  // Вернуть false чтобы хост переопросил
     }
     
     return ready;
