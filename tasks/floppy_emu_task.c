@@ -293,12 +293,24 @@ static void floppy_load_image(const char *filename) {
     // Предзагрузка FAT области в кеш
     printf("[FLOPPY] Preloading FAT area (%d sectors)...\n", FLOPPY_FAT12_SECTORS);
     
+    // Небольшая задержка чтобы sdcard_task успел обработать команду загрузки
+    vTaskDelay(pdMS_TO_TICKS(500));
+    
     for (uint32_t sector = 0; sector < FLOPPY_FAT12_SECTORS; sector++) {
         uint8_t temp_buffer[FLOPPY_SECTOR_SIZE];
         
+        printf("[FLOPPY] Preloading sector %lu...\n", sector);
         if (!cache_read_sector(sector, temp_buffer)) {
             printf("[FLOPPY] Failed to preload sector %lu\n", sector);
             floppy_info.status = FLOPPY_STATUS_ERROR;
+            
+            // Показать ошибку на OLED
+            oled_msg.command = OLED_CMD_SHOW_STATUS;
+            strcpy(oled_msg.data.status.status_line1, "Load Error!");
+            snprintf(oled_msg.data.status.status_line2, 32, "Sector %lu", sector);
+            if (oled_queue != NULL) {
+                xQueueSend(oled_queue, &oled_msg, 0);
+            }
             return;
         }
         

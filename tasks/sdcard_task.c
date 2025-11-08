@@ -251,7 +251,8 @@ static void sdcard_load_image(const char *filename) {
  */
 bool sdcard_read_sector(uint32_t sector, uint8_t *buffer) {
     if (!file_opened || !image_loaded) {
-        printf("[SDCARD] No image loaded!\n");
+        printf("[SDCARD] No image loaded! (file_opened=%d, image_loaded=%d)\n", 
+               file_opened, image_loaded);
         return false;
     }
     
@@ -264,7 +265,7 @@ bool sdcard_read_sector(uint32_t sector, uint8_t *buffer) {
     FSIZE_t offset = sector * FLOPPY_SECTOR_SIZE;
     FRESULT res = f_lseek(&current_file, offset);
     if (res != FR_OK) {
-        printf("[SDCARD] Seek error %d\n", res);
+        printf("[SDCARD] Seek error %d at sector %lu\n", res, sector);
         return false;
     }
     
@@ -272,7 +273,7 @@ bool sdcard_read_sector(uint32_t sector, uint8_t *buffer) {
     UINT bytes_read;
     res = f_read(&current_file, buffer, FLOPPY_SECTOR_SIZE, &bytes_read);
     if (res != FR_OK || bytes_read != FLOPPY_SECTOR_SIZE) {
-        printf("[SDCARD] Read error %d (read %u bytes)\n", res, bytes_read);
+        printf("[SDCARD] Read error %d (read %u bytes) at sector %lu\n", res, bytes_read, sector);
         return false;
     }
     
