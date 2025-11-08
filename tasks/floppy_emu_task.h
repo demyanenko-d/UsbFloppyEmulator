@@ -7,10 +7,35 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Размеры флоппи-диска 1.44MB
+// Размеры флоппи-диска
 #define FLOPPY_SECTOR_SIZE      512
-#define FLOPPY_SECTORS          2880  // 1.44MB / 512 bytes
-#define FLOPPY_FAT12_SECTORS    33    // FAT12: boot sector + 2 FATs (9 sectors each) + root dir (14 sectors)
+
+// Типы флоппи-дисков
+typedef enum {
+    FLOPPY_TYPE_UNKNOWN = 0,
+    FLOPPY_TYPE_720K,       // 720 KB (DD)
+    FLOPPY_TYPE_1200K,      // 1.2 MB (HD 5.25")
+    FLOPPY_TYPE_1440K       // 1.44 MB (HD 3.5")
+} floppy_type_t;
+
+// Параметры разных типов дисков
+typedef struct {
+    floppy_type_t type;
+    const char *name;
+    uint32_t sectors;       // Общее количество секторов
+    uint32_t fat_sectors;   // Количество секторов для FAT области
+} floppy_geometry_t;
+
+// Геометрия различных форматов
+static const floppy_geometry_t floppy_formats[] = {
+    { FLOPPY_TYPE_720K,  "720K",  1440, 14 },  // 720KB:  boot(1) + FATs(2*3) + root(7) = 14 sectors
+    { FLOPPY_TYPE_1200K, "1.2M",  2400, 19 },  // 1.2MB:  boot(1) + FATs(2*7) + root(14) = 29? need check
+    { FLOPPY_TYPE_1440K, "1.44M", 2880, 33 }   // 1.44MB: boot(1) + FATs(2*9) + root(14) = 33 sectors
+};
+
+// Для обратной совместимости
+#define FLOPPY_SECTORS          2880  // 1.44MB / 512 bytes (максимальный размер)
+#define FLOPPY_FAT12_SECTORS    33    // FAT12 для 1.44MB (максимальный размер)
 
 // Конфигурация кеша
 #define CACHE_TOTAL_SIZE        (320 * 1024)  // 320 KB общий кеш
@@ -54,6 +79,8 @@ typedef enum {
 typedef struct {
     floppy_status_t status;
     char current_image[64];
+    floppy_type_t disk_type;        // Тип диска (720K/1.2M/1.44M)
+    uint32_t total_sectors;         // Общее количество секторов
     uint32_t loaded_kb;             // Загружено KB (для FAT области)
     uint32_t total_fat_kb;          // Размер FAT области в KB
     uint32_t cache_hits;            // Попадания в кеш

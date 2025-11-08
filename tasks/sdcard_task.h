@@ -59,5 +59,6 @@ void sdcard_task(void *pvParameters);
 bool sdcard_is_initialized(void);
 bool sdcard_read_sector(uint32_t sector, uint8_t *buffer);
 bool sdcard_write_sector(uint32_t sector, const uint8_t *buffer);
+uint32_t sdcard_get_image_size(void);
 
 #endif // SDCARD_TASK_H

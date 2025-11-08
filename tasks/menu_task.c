@@ -98,9 +98,24 @@ static void update_oled_menu(void) {
             break;
             
         case MENU_STATE_DISK_LOADED: {
-            // Экран после загрузки: Disk Ready / Имя файла / Eject >> Yes No
+            // Экран после загрузки: Disk Ready (размер) / Имя файла / Eject >> Yes No
             const floppy_info_t* info = floppy_get_info();
-            strcpy(msg.data.menu.items[0], "Disk Ready");
+            
+            // Первая строка: "Disk Ready" + размер диска
+            if (info != NULL) {
+                const char *size_str = "???";
+                switch (info->disk_type) {
+                    case FLOPPY_TYPE_720K:  size_str = "720K"; break;
+                    case FLOPPY_TYPE_1200K: size_str = "1.2M"; break;
+                    case FLOPPY_TYPE_1440K: size_str = "1.44M"; break;
+                    default: size_str = "???"; break;
+                }
+                snprintf(msg.data.menu.items[0], 32, "Disk Ready %s", size_str);
+            } else {
+                strcpy(msg.data.menu.items[0], "Disk Ready");
+            }
+            
+            // Вторая строка: имя файла
             if (info != NULL && info->current_image[0] != '\0') {
                 snprintf(msg.data.menu.items[1], 32, "%.20s", info->current_image);
             } else {

@@ -30,6 +30,8 @@ static cache_block_t data_cache[CACHE_DATA_BLOCKS];
 static floppy_info_t floppy_info = {
     .status = FLOPPY_STATUS_NO_IMAGE,
     .current_image = "",
+    .disk_type = FLOPPY_TYPE_UNKNOWN,
+    .total_sectors = 0,
     .loaded_kb = 0,
     .total_fat_kb = 0,
     .cache_hits = 0,
@@ -44,6 +46,40 @@ static SemaphoreHandle_t cache_mutex = NULL;
  */
 static inline uint32_t get_timestamp(void) {
     return time_us_32();
+}
+
+/**
+ * @brief Определить тип диска по размеру файла
+ */
+static floppy_type_t detect_floppy_type(uint32_t file_size) {
+    // Размеры в байтах
+    const uint32_t size_720k = 720 * 1024;    // 737280 bytes
+    const uint32_t size_1200k = 1200 * 1024;  // 1228800 bytes
+    const uint32_t size_1440k = 1440 * 1024;  // 1474560 bytes
+    
+    // Допуск ±512 байт
+    if (file_size >= (size_720k - 512) && file_size <= (size_720k + 512)) {
+        return FLOPPY_TYPE_720K;
+    } else if (file_size >= (size_1200k - 512) && file_size <= (size_1200k + 512)) {
+        return FLOPPY_TYPE_1200K;
+    } else if (file_size >= (size_1440k - 512) && file_size <= (size_1440k + 512)) {
+        return FLOPPY_TYPE_1440K;
+    }
+    
+    printf("[FLOPPY] Unknown disk size: %lu bytes\n", file_size);
+    return FLOPPY_TYPE_UNKNOWN;
+}
+
+/**
+ * @brief Получить геометрию диска по типу
+ */
+static const floppy_geometry_t* get_floppy_geometry(floppy_type_t type) {
+    for (int i = 0; i < 3; i++) {
+        if (floppy_formats[i].type == type) {
+            return &floppy_formats[i];
+        }
+    }
+    return NULL;
 }
 
 /**
@@ -268,7 +304,6 @@ static void floppy_load_image(const char *filename) {
     floppy_info.status = FLOPPY_STATUS_LOADING;
     strncpy(floppy_info.current_image, filename, sizeof(floppy_info.current_image) - 1);
     floppy_info.loaded_kb = 0;
-    floppy_info.total_fat_kb = (FLOPPY_FAT12_SECTORS * FLOPPY_SECTOR_SIZE) / 1024;
     
     // Очистка кеша
     cache_init();
@@ -278,6 +313,44 @@ static void floppy_load_image(const char *filename) {
     sd_msg.command = SDCARD_CMD_LOAD_IMAGE;
     strncpy(sd_msg.data.filename, filename, 64);
     xQueueSend(sdcard_queue, &sd_msg, portMAX_DELAY);
+    
+    // Задержка чтобы sdcard_task успел обработать команду загрузки
+    vTaskDelay(pdMS_TO_TICKS(500));
+    
+    // Определить тип диска по размеру файла
+    uint32_t file_size = sdcard_get_image_size();
+    printf("[FLOPPY] File size: %lu bytes\n", file_size);
+    
+    floppy_info.disk_type = detect_floppy_type(file_size);
+    if (floppy_info.disk_type == FLOPPY_TYPE_UNKNOWN) {
+        printf("[FLOPPY] Unknown disk format!\n");
+        floppy_info.status = FLOPPY_STATUS_ERROR;
+        
+        oled_message_t oled_msg;
+        oled_msg.command = OLED_CMD_SHOW_STATUS;
+        strcpy(oled_msg.data.status.status_line1, "Unknown Format");
+        snprintf(oled_msg.data.status.status_line2, 32, "%lu KB", file_size / 1024);
+        
+        extern QueueHandle_t oled_queue;
+        if (oled_queue != NULL) {
+            xQueueSend(oled_queue, &oled_msg, pdMS_TO_TICKS(100));
+        }
+        return;
+    }
+    
+    // Получить геометрию диска
+    const floppy_geometry_t *geometry = get_floppy_geometry(floppy_info.disk_type);
+    if (geometry == NULL) {
+        printf("[FLOPPY] Failed to get geometry!\n");
+        floppy_info.status = FLOPPY_STATUS_ERROR;
+        return;
+    }
+    
+    floppy_info.total_sectors = geometry->sectors;
+    floppy_info.total_fat_kb = (geometry->fat_sectors * FLOPPY_SECTOR_SIZE) / 1024;
+    
+    printf("[FLOPPY] Detected format: %s (%lu sectors, FAT: %lu KB)\n",
+           geometry->name, floppy_info.total_sectors, floppy_info.total_fat_kb);
     
     // Отображение статуса загрузки на OLED
     oled_message_t oled_msg;
@@ -291,12 +364,9 @@ static void floppy_load_image(const char *filename) {
     }
     
     // Предзагрузка FAT области в кеш
-    printf("[FLOPPY] Preloading FAT area (%d sectors)...\n", FLOPPY_FAT12_SECTORS);
+    printf("[FLOPPY] Preloading FAT area (%lu sectors)...\n", geometry->fat_sectors);
     
-    // Небольшая задержка чтобы sdcard_task успел обработать команду загрузки
-    vTaskDelay(pdMS_TO_TICKS(500));
-    
-    for (uint32_t sector = 0; sector < FLOPPY_FAT12_SECTORS; sector++) {
+    for (uint32_t sector = 0; sector < geometry->fat_sectors; sector++) {
         uint8_t temp_buffer[FLOPPY_SECTOR_SIZE];
         
         printf("[FLOPPY] Preloading sector %lu...\n", sector);

@@ -69,8 +69,18 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun) {
 void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) {
     (void)lun;
     
-    *block_count = FLOPPY_SECTORS;      // 2880 секторов
-    *block_size  = FLOPPY_SECTOR_SIZE;  // 512 bytes
+    // Получить информацию о загруженном образе
+    const floppy_info_t* info = floppy_get_info();
+    
+    if (info != NULL && info->status == FLOPPY_STATUS_READY && info->total_sectors > 0) {
+        // Использовать реальный размер загруженного образа
+        *block_count = info->total_sectors;
+    } else {
+        // По умолчанию - максимальный размер (1.44MB)
+        *block_count = FLOPPY_SECTORS;
+    }
+    
+    *block_size = FLOPPY_SECTOR_SIZE;  // 512 bytes
     
     printf("[USB] Capacity request: %lu sectors x %u bytes\n", *block_count, *block_size);
 }
@@ -97,9 +107,13 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buff
     (void)lun;
     (void)offset;  // offset всегда 0, так как читаем по одному сектору
     
+    // Получить информацию о загруженном образе для проверки границ
+    const floppy_info_t* info = floppy_get_info();
+    uint32_t max_sectors = (info != NULL && info->total_sectors > 0) ? info->total_sectors : FLOPPY_SECTORS;
+    
     // Проверка границ
-    if (lba >= FLOPPY_SECTORS) {
-        printf("[USB] Read error: LBA %lu out of range\n", lba);
+    if (lba >= max_sectors) {
+        printf("[USB] Read error: LBA %lu out of range (max: %lu)\n", lba, max_sectors);
         return -1;
     }
     
@@ -119,9 +133,13 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
     (void)lun;
     (void)offset;
     
+    // Получить информацию о загруженном образе для проверки границ
+    const floppy_info_t* info = floppy_get_info();
+    uint32_t max_sectors = (info != NULL && info->total_sectors > 0) ? info->total_sectors : FLOPPY_SECTORS;
+    
     // Проверка границ
-    if (lba >= FLOPPY_SECTORS) {
-        printf("[USB] Write error: LBA %lu out of range\n", lba);
+    if (lba >= max_sectors) {
+        printf("[USB] Write error: LBA %lu out of range (max: %lu)\n", lba, max_sectors);
         return -1;
     }
     

@@ -330,6 +330,16 @@ bool sdcard_write_sector(uint32_t sector, const uint8_t *buffer) {
 }
 
 /**
+ * @brief Получить размер загруженного образа в байтах
+ */
+uint32_t sdcard_get_image_size(void) {
+    if (!file_opened) {
+        return 0;
+    }
+    return (uint32_t)f_size(&current_file);
+}
+
+/**
  * @brief Проверка инициализации SD карты
  */
 bool sdcard_is_initialized(void) {
