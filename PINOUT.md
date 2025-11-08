@@ -12,8 +12,8 @@
 - **GPIO1** - UART0 RX (отладочный ввод)
 
 ### I2C для OLED дисплея (SSD1306)
-- **GPIO2** - I2C0 SDA (данные)
-- **GPIO3** - I2C0 SCL (тактовый сигнал)
+- **GPIO2** - I2C1 SDA (данные)
+- **GPIO3** - I2C1 SCL (тактовый сигнал)
 
 ### SPI для SD карты
 - **GPIO4** - SPI0 MISO (RX)

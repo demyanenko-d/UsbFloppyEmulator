@@ -24,9 +24,9 @@
 #define SD_PIN_MOSI     7    // Было 19, теперь 7
 
 // I2C for OLED Display
-#define OLED_I2C_PORT   i2c0
-#define OLED_I2C_SDA    2    // Было 8, теперь 2 (GPIO0,1 для UART)
-#define OLED_I2C_SCL    3    // Было 9, теперь 3
+#define OLED_I2C_PORT   i2c1  // GPIO2,3 принадлежат I2C1, а не I2C0!
+#define OLED_I2C_SDA    2     // Было 8, теперь 2 (GPIO0,1 для UART)
+#define OLED_I2C_SCL    3     // Было 9, теперь 3
 #define OLED_I2C_ADDR   0x3C
 #define OLED_WIDTH      128
 #define OLED_HEIGHT     32  // Можно изменить на 64
