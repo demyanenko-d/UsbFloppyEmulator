@@ -3,14 +3,14 @@
 
 // Hardware Detection
 // Автоматическое определение платформы по доступной памяти
-// Pico 1: 264KB SRAM
+// Pico 1: 264KB SRAM (ограничено из-за стека и других данных)
 // Pico 2: 520KB SRAM
 #if defined(PICO_RP2350)
     #define IS_PICO2 1
     #define CACHE_SIZE_KB 320
 #else
     #define IS_PICO2 0
-    #define CACHE_SIZE_KB 160
+    #define CACHE_SIZE_KB 100  // Уменьшено со 160 до 100KB для Pico 1
 #endif
 
 // Pin Configuration (GPIO0-GPIO15 для совместимости с nano RP2040/RP2350)
